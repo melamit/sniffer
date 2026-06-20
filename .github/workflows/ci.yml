@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+  release:
+    types: [published]
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+
+      - name: Cache cargo dependencies
+        uses: Swatinem/rust-cache@v2
+
+      - name: Clippy
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --release
+
+      - name: Upload binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: sniffer-${{ matrix.os }}
+          path: target/release/sniffer${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+  release:
+    if: github.event_name == 'release'
+    needs: [build]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+
+      - name: Upload release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mv sniffer-ubuntu-latest/sniffer         sniffer-linux-x64
+          mv sniffer-windows-latest/sniffer.exe    sniffer-windows-x64.exe
+          gh release upload "${{ github.event.release.tag_name }}" sniffer-linux-x64 sniffer-windows-x64.exe --clobber

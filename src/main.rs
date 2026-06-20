@@ -182,8 +182,8 @@ fn parse_forge_toml(bytes: &str) -> Vec<ModInfo> {
         let mut deps = Vec::new();
         let mut mc_version = None;
 
-        if let Some(mod_id_str) = &mod_id {
-            if let Some(dep_arr) = dep_map.get(mod_id_str.as_str()).and_then(|d| d.as_array()) {
+        if let Some(mod_id_str) = &mod_id
+            && let Some(dep_arr) = dep_map.get(mod_id_str.as_str()).and_then(|d| d.as_array()) {
                 for dep in dep_arr {
                     if let Some(dep_table) = dep.as_table() {
                         let dep_mod_id = dep_table
@@ -213,7 +213,6 @@ fn parse_forge_toml(bytes: &str) -> Vec<ModInfo> {
                     }
                 }
             }
-        }
 
         results.push(ModInfo {
             filename: String::new(),
@@ -379,24 +378,24 @@ fn parse_jar(path: &Path) -> Vec<(ModInfo, Option<IconData>)> {
         }
     }
 
-    if mods.is_empty() {
-        if let Some(fname) = path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()) {
-            mods.push((
-                ModInfo {
-                    filename: fname,
-                    mod_id: None,
-                    name: if has_class_files { Some("Unknown mod".to_string()) } else { None },
-                    icon: None,
-                    authors: vec![],
-                    license: None,
-                    url: None,
-                    minecraft_version: None,
-                    dependencies: vec![],
-                    mod_loader: if has_class_files { Some("forge".to_string()) } else { None },
-                },
-                None,
-            ));
-        }
+    if mods.is_empty()
+        && let Some(fname) = path.file_name().and_then(|n| n.to_str()).map(|s| s.to_string())
+    {
+        mods.push((
+            ModInfo {
+                filename: fname,
+                mod_id: None,
+                name: if has_class_files { Some("Unknown mod".to_string()) } else { None },
+                icon: None,
+                authors: vec![],
+                license: None,
+                url: None,
+                minecraft_version: None,
+                dependencies: vec![],
+                mod_loader: if has_class_files { Some("forge".to_string()) } else { None },
+            },
+            None,
+        ));
     }
 
     let result: Vec<(ModInfo, Option<IconData>)> = mods
@@ -432,10 +431,10 @@ fn parse_jar(path: &Path) -> Vec<(ModInfo, Option<IconData>)> {
 fn filename_from_icon_path(icon_path: &str, mod_id: Option<&str>) -> String {
     let no_query = icon_path.split('?').next().unwrap_or(icon_path);
     if let Some(id) = mod_id {
-        let ext = no_query.rsplit('.').next().filter(|s| s.len() <= 4).unwrap_or("png");
+        let ext = no_query.rsplit('.').next_back().filter(|s| s.len() <= 4).unwrap_or("png");
         format!("{}.{}", id, ext)
     } else {
-        let basename = no_query.split('/').last().unwrap_or(no_query);
+        let basename = no_query.split('/').next_back().unwrap_or(no_query);
         if basename.is_empty() {
             "icon".to_string()
         } else {

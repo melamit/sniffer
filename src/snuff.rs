@@ -100,7 +100,7 @@ impl SnifferApp {
             let num_threads = std::thread::available_parallelism()
                 .map(|n| n.get())
                 .unwrap_or(4);
-            let chunk_size = (total + num_threads - 1) / num_threads;
+            let chunk_size = total.div_ceil(num_threads);
             let mutex_results = std::sync::Mutex::new(Vec::with_capacity(total));
             let processed = std::sync::atomic::AtomicUsize::new(0);
             let result_tx = tx.clone();
@@ -267,30 +267,30 @@ impl SnifferApp {
                 return false;
             }
         }
-        if !self.include_pattern.is_empty() {
-            if let Ok(re) = regex::Regex::new(&self.include_pattern) {
-                let fields = [
-                    &sm.info.filename,
-                    sm.info.name.as_deref().unwrap_or(""),
-                    sm.info.mod_id.as_deref().unwrap_or(""),
-                    &sm.info.authors.join(", "),
-                ];
-                if !fields.iter().any(|f| re.is_match(f)) {
-                    return false;
-                }
+        if !self.include_pattern.is_empty()
+            && let Ok(re) = regex::Regex::new(&self.include_pattern)
+        {
+            let fields = [
+                &sm.info.filename,
+                sm.info.name.as_deref().unwrap_or(""),
+                sm.info.mod_id.as_deref().unwrap_or(""),
+                &sm.info.authors.join(", "),
+            ];
+            if !fields.iter().any(|f| re.is_match(f)) {
+                return false;
             }
         }
-        if !self.exclude_pattern.is_empty() {
-            if let Ok(re) = regex::Regex::new(&self.exclude_pattern) {
-                let fields = [
-                    &sm.info.filename,
-                    sm.info.name.as_deref().unwrap_or(""),
-                    sm.info.mod_id.as_deref().unwrap_or(""),
-                    &sm.info.authors.join(", "),
-                ];
-                if fields.iter().any(|f| re.is_match(f)) {
-                    return false;
-                }
+        if !self.exclude_pattern.is_empty()
+            && let Ok(re) = regex::Regex::new(&self.exclude_pattern)
+        {
+            let fields = [
+                &sm.info.filename,
+                sm.info.name.as_deref().unwrap_or(""),
+                sm.info.mod_id.as_deref().unwrap_or(""),
+                &sm.info.authors.join(", "),
+            ];
+            if fields.iter().any(|f| re.is_match(f)) {
+                return false;
             }
         }
         true
@@ -486,7 +486,7 @@ impl eframe::App for SnifferApp {
 
         egui::TopBottomPanel::bottom("status")
             .frame(egui::Frame {
-                inner_margin: egui::Margin::symmetric(6.0, 2.0).into(),
+                inner_margin: egui::Margin::symmetric(6.0, 2.0),
                 ..Default::default()
             })
             .show(ctx, |ui| {

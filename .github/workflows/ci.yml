@@ -27,17 +27,29 @@ jobs:
       - name: Cache cargo dependencies
         uses: Swatinem/rust-cache@v2
 
-      - name: Clippy
+      - name: Clippy (CLI)
         run: cargo clippy --all-targets -- -D warnings
 
-      - name: Build
+      - name: Clippy (GUI)
+        run: cargo clippy --features gui --bin snuff -- -D warnings
+
+      - name: Build CLI
         run: cargo build --release
 
-      - name: Upload binary
+      - name: Build GUI
+        run: cargo build --release --features gui
+
+      - name: Upload CLI binary
         uses: actions/upload-artifact@v4
         with:
           name: sniffer-${{ matrix.os }}
           path: target/release/sniffer${{ matrix.os == 'windows-latest' && '.exe' || '' }}
+
+      - name: Upload GUI binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: snuff-${{ matrix.os }}
+          path: target/release/snuff${{ matrix.os == 'windows-latest' && '.exe' || '' }}
 
   release:
     if: github.event_name == 'release'
@@ -58,4 +70,8 @@ jobs:
         run: |
           mv sniffer-ubuntu-latest/sniffer         sniffer-linux-x64
           mv sniffer-windows-latest/sniffer.exe    sniffer-windows-x64.exe
-          gh release upload "${{ github.event.release.tag_name }}" sniffer-linux-x64 sniffer-windows-x64.exe --clobber
+          mv snuff-ubuntu-latest/snuff             snuff-linux-x64
+          mv snuff-windows-latest/snuff.exe        snuff-windows-x64.exe
+          gh release upload "${{ github.event.release.tag_name }}" \
+            sniffer-linux-x64 sniffer-windows-x64.exe \
+            snuff-linux-x64 snuff-windows-x64.exe --clobber

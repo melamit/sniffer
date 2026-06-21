@@ -39,6 +39,8 @@ pub struct SnifferApp {
     search_query: String,
     include_pattern: String,
     exclude_pattern: String,
+    editing_name: Option<usize>,
+    edit_name_buffer: String,
 }
 
 impl Default for SnifferApp {
@@ -62,6 +64,8 @@ impl Default for SnifferApp {
             search_query: String::new(),
             include_pattern: String::new(),
             exclude_pattern: String::new(),
+            editing_name: None,
+            edit_name_buffer: String::new(),
         }
     }
 }
@@ -82,6 +86,8 @@ impl SnifferApp {
         self.search_query.clear();
         self.include_pattern.clear();
         self.exclude_pattern.clear();
+        self.editing_name = None;
+        self.edit_name_buffer.clear();
 
         thread::spawn(move || {
             let jars: Vec<PathBuf> = WalkDir::new(&folder)
@@ -125,6 +131,7 @@ impl SnifferApp {
                                     file_path: path.clone(),
                                     icon_bytes: icon_data.map(|d| d.bytes),
                                     icon_path,
+                                    display_name: None,
                                 });
                             }
                             let p =
@@ -321,7 +328,7 @@ fn build_manifest(mods: &[ScannedMod]) -> serde_json::Value {
     serde_json::json!(mods.iter().map(|sm| {
         serde_json::json!({
             "mod_id": sm.info.mod_id,
-            "name": sm.info.name,
+            "name": sm.display_name.as_ref().or(sm.info.name.as_ref()),
             "version": sm.info.version,
             "description": sm.info.description,
             "filename": sm.info.filename,
@@ -499,34 +506,18 @@ impl eframe::App for SnifferApp {
                         }
                     });
                 });
-                ui.menu_button("Export", |ui| {
-                    ui.add_enabled_ui(self.ready && !self.packing, |ui| {
-                        ui.label("Format:");
-                        egui::ComboBox::from_id_source("format")
-                            .selected_text(&self.output_format)
-                            .show_ui(ui, |ui| {
-                                ui.selectable_value(
-                                    &mut self.output_format,
-                                    "zip".to_string(),
-                                    "ZIP",
-                                );
-                                ui.selectable_value(
-                                    &mut self.output_format,
-                                    "tar.gz".to_string(),
-                                    "TAR.GZ",
-                                );
-                                ui.selectable_value(
-                                    &mut self.output_format,
-                                    "tar.xz".to_string(),
-                                    "TAR.XZ",
-                                );
-                            });
-                        ui.separator();
-                        if ui.button("Save As...").clicked() {
-                            self.show_save_dialog();
-                            ui.close_menu();
-                        }
-                    });
+
+                ui.add_enabled_ui(self.ready && !self.packing, |ui| {
+                    egui::ComboBox::from_id_source("format")
+                        .selected_text(format!("Export: {}", self.output_format.to_uppercase()))
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.output_format, "zip".to_string(), "ZIP");
+                            ui.selectable_value(&mut self.output_format, "tar.gz".to_string(), "TAR.GZ");
+                            ui.selectable_value(&mut self.output_format, "tar.xz".to_string(), "TAR.XZ");
+                        });
+                    if ui.button("Save As...").clicked() {
+                        self.show_save_dialog();
+                    }
                 });
 
             });
@@ -629,7 +620,9 @@ impl eframe::App for SnifferApp {
                         for &i in &filtered_indices {
                             let checked = &mut self.checked[i];
                             let icon = &self.icons[i];
-                            let sm = &self.mods[i];
+                            let sm = &mut self.mods[i];
+                            let is_editing = self.editing_name == Some(i);
+
                             ui.add_sized(
                                 egui::vec2(ui.available_width(), row_height),
                                 |ui: &mut egui::Ui| {
@@ -645,11 +638,34 @@ impl eframe::App for SnifferApp {
                                             ui.add_space(64.0);
                                         }
                                         ui.vertical(|ui| {
-                                            if let Some(ref name) = sm.info.name {
-                                                ui.strong(name);
+                                            let display_name = sm.display_name.as_deref()
+                                                .or(sm.info.name.as_deref())
+                                                .unwrap_or(&sm.info.filename);
+
+                                            if is_editing {
+                                                let response = ui.add(
+                                                    egui::TextEdit::singleline(&mut self.edit_name_buffer)
+                                                        .desired_width(ui.available_width() - 10.0)
+                                                );
+                                                if response.lost_focus() && !response.has_focus() {
+                                                    if !self.edit_name_buffer.trim().is_empty() {
+                                                        sm.display_name = Some(self.edit_name_buffer.trim().to_string());
+                                                    } else {
+                                                        sm.display_name = None;
+                                                    }
+                                                    self.editing_name = None;
+                                                }
+                                                response.request_focus();
                                             } else {
-                                                ui.strong(&sm.info.filename);
+                                                let name_label = ui.strong(display_name);
+                                                if name_label.double_clicked() {
+                                                    self.editing_name = Some(i);
+                                                    self.edit_name_buffer = sm.display_name.clone()
+                                                        .or(sm.info.name.clone())
+                                                        .unwrap_or_default();
+                                                }
                                             }
+
                                             ui.label(&sm.info.filename);
                                             if let Some(ref id) = sm.info.mod_id {
                                                 ui.label(format!("ID: {}", id));

@@ -557,6 +557,7 @@ pub struct ScannedMod {
     pub file_path: PathBuf,
     pub icon_bytes: Option<Vec<u8>>,
     pub icon_path: Option<String>,
+    pub display_name: Option<String>,
 }
 
 pub fn scan_folder(dir: &Path) -> Vec<ScannedMod> {
@@ -575,6 +576,7 @@ pub fn scan_folder(dir: &Path) -> Vec<ScannedMod> {
                         file_path: child.clone(),
                         icon_bytes: icon_data.map(|d| d.bytes),
                         icon_path,
+                        display_name: None,
                     });
                 }
             }

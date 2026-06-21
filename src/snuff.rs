@@ -317,6 +317,23 @@ impl SnifferApp {
     }
 }
 
+fn build_manifest(mods: &[ScannedMod]) -> serde_json::Value {
+    serde_json::json!(mods.iter().map(|sm| {
+        serde_json::json!({
+            "mod_id": sm.info.mod_id,
+            "name": sm.info.name,
+            "version": sm.info.version,
+            "description": sm.info.description,
+            "filename": sm.info.filename,
+            "authors": sm.info.authors,
+            "url": sm.info.url,
+            "license": sm.info.license,
+            "minecraft_version": sm.info.minecraft_version,
+            "mod_loader": sm.info.mod_loader,
+        })
+    }).collect::<Vec<_>>())
+}
+
 fn create_zip_archive(
     path: &Path,
     mods: &[ScannedMod],
@@ -325,21 +342,30 @@ fn create_zip_archive(
     use zip::write::SimpleFileOptions;
     let file = fs::File::create(path)?;
     let mut zip = zip::ZipWriter::new(file);
-    let total = mods.len();
-    for (i, sm) in mods.iter().enumerate() {
-        let data = fs::read(&sm.file_path)?;
-        let name = sm
-            .file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown.jar");
-        zip.start_file(name, SimpleFileOptions::default())?;
-        zip.write_all(&data)?;
-        let _ = tx.send(PackMsg::Progress {
-            current: i + 1,
-            total,
-        });
+    let total = 1 + mods.iter().filter(|sm| sm.icon_bytes.is_some()).count();
+    let mut current = 0;
+
+    let manifest = build_manifest(mods);
+    let json = serde_json::to_string_pretty(&manifest)?;
+    zip.start_file("manifest.json", SimpleFileOptions::default())?;
+    zip.write_all(json.as_bytes())?;
+    current += 1;
+    let _ = tx.send(PackMsg::Progress { current, total });
+
+    for sm in mods {
+        if let Some(ref icon_bytes) = sm.icon_bytes {
+            let mod_id = sm.info.mod_id.as_deref().unwrap_or("unknown");
+            let name = filename_from_icon_path(
+                sm.icon_path.as_deref().unwrap_or(""),
+                Some(mod_id),
+            );
+            zip.start_file(format!("icons/{}", name), SimpleFileOptions::default())?;
+            zip.write_all(icon_bytes)?;
+            current += 1;
+            let _ = tx.send(PackMsg::Progress { current, total });
+        }
     }
+
     zip.finish()?;
     Ok(())
 }
@@ -354,23 +380,34 @@ fn create_tar_gz_archive(
     let file = fs::File::create(path)?;
     let enc = GzEncoder::new(file, Compression::default());
     let mut tar = tar::Builder::new(enc);
-    let total = mods.len();
-    for (i, sm) in mods.iter().enumerate() {
-        let data = fs::read(&sm.file_path)?;
-        let name = sm
-            .file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown.jar");
-        let mut header = tar::Header::new_old();
-        header.set_size(data.len() as u64);
-        header.set_cksum();
-        tar.append_data(&mut header, name, data.as_slice())?;
-        let _ = tx.send(PackMsg::Progress {
-            current: i + 1,
-            total,
-        });
+    let total = 1 + mods.iter().filter(|sm| sm.icon_bytes.is_some()).count();
+    let mut current = 0;
+
+    let manifest = build_manifest(mods);
+    let json = serde_json::to_string_pretty(&manifest)?;
+    let mut header = tar::Header::new_old();
+    header.set_size(json.len() as u64);
+    header.set_cksum();
+    tar.append_data(&mut header, "manifest.json", json.as_bytes())?;
+    current += 1;
+    let _ = tx.send(PackMsg::Progress { current, total });
+
+    for sm in mods {
+        if let Some(ref icon_bytes) = sm.icon_bytes {
+            let mod_id = sm.info.mod_id.as_deref().unwrap_or("unknown");
+            let name = filename_from_icon_path(
+                sm.icon_path.as_deref().unwrap_or(""),
+                Some(mod_id),
+            );
+            let mut header = tar::Header::new_old();
+            header.set_size(icon_bytes.len() as u64);
+            header.set_cksum();
+            tar.append_data(&mut header, format!("icons/{}", name), icon_bytes.as_slice())?;
+            current += 1;
+            let _ = tx.send(PackMsg::Progress { current, total });
+        }
     }
+
     let enc = tar.into_inner()?;
     enc.finish()?;
     Ok(())
@@ -384,23 +421,34 @@ fn create_tar_xz_archive(
     let file = fs::File::create(path)?;
     let enc = xz2::write::XzEncoder::new(file, 6);
     let mut tar = tar::Builder::new(enc);
-    let total = mods.len();
-    for (i, sm) in mods.iter().enumerate() {
-        let data = fs::read(&sm.file_path)?;
-        let name = sm
-            .file_path
-            .file_name()
-            .and_then(|n| n.to_str())
-            .unwrap_or("unknown.jar");
-        let mut header = tar::Header::new_old();
-        header.set_size(data.len() as u64);
-        header.set_cksum();
-        tar.append_data(&mut header, name, data.as_slice())?;
-        let _ = tx.send(PackMsg::Progress {
-            current: i + 1,
-            total,
-        });
+    let total = 1 + mods.iter().filter(|sm| sm.icon_bytes.is_some()).count();
+    let mut current = 0;
+
+    let manifest = build_manifest(mods);
+    let json = serde_json::to_string_pretty(&manifest)?;
+    let mut header = tar::Header::new_old();
+    header.set_size(json.len() as u64);
+    header.set_cksum();
+    tar.append_data(&mut header, "manifest.json", json.as_bytes())?;
+    current += 1;
+    let _ = tx.send(PackMsg::Progress { current, total });
+
+    for sm in mods {
+        if let Some(ref icon_bytes) = sm.icon_bytes {
+            let mod_id = sm.info.mod_id.as_deref().unwrap_or("unknown");
+            let name = filename_from_icon_path(
+                sm.icon_path.as_deref().unwrap_or(""),
+                Some(mod_id),
+            );
+            let mut header = tar::Header::new_old();
+            header.set_size(icon_bytes.len() as u64);
+            header.set_cksum();
+            tar.append_data(&mut header, format!("icons/{}", name), icon_bytes.as_slice())?;
+            current += 1;
+            let _ = tx.send(PackMsg::Progress { current, total });
+        }
     }
+
     let enc = tar.into_inner()?;
     enc.finish()?;
     Ok(())

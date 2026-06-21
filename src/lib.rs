@@ -3,6 +3,7 @@ use std::collections::HashMap;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
+use regex::Regex;
 
 #[derive(Debug, Clone, Serialize)]
 pub struct Dependency {
@@ -16,6 +17,8 @@ pub struct ModInfo {
     pub filename: String,
     pub mod_id: Option<String>,
     pub name: Option<String>,
+    pub version: Option<String>,
+    pub description: Option<String>,
     pub icon: Option<String>,
     pub authors: Vec<String>,
     pub license: Option<String>,
@@ -48,6 +51,8 @@ pub fn parse_fabric_json(bytes: &str) -> Option<ModInfo> {
 
     let mod_id = obj.get("id")?.as_str().map(|s| s.to_string());
     let name = obj.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let version = obj.get("version").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let description = obj.get("description").and_then(|v| v.as_str()).map(|s| s.to_string());
 
     let icon = match obj.get("icon") {
         Some(serde_json::Value::String(s)) => Some(s.clone()),
@@ -108,6 +113,8 @@ pub fn parse_fabric_json(bytes: &str) -> Option<ModInfo> {
         filename: String::new(),
         mod_id,
         name,
+        version,
+        description,
         icon,
         authors,
         license,
@@ -149,6 +156,14 @@ pub fn parse_forge_toml(bytes: &str) -> Vec<ModInfo> {
             .map(|s| s.to_string());
         let name = table
             .get("displayName")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let version = table
+            .get("version")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string());
+        let description = table
+            .get("description")
             .and_then(|v| v.as_str())
             .map(|s| s.to_string());
         let icon = table
@@ -217,6 +232,8 @@ pub fn parse_forge_toml(bytes: &str) -> Vec<ModInfo> {
             filename: String::new(),
             mod_id,
             name,
+            version,
+            description,
             icon,
             authors,
             license,
@@ -230,10 +247,96 @@ pub fn parse_forge_toml(bytes: &str) -> Vec<ModInfo> {
     results
 }
 
+fn lenient_json_parse(bytes: &str) -> Option<serde_json::Value> {
+    if let Ok(v) = serde_json::from_str(bytes) {
+        return Some(v);
+    }
+
+    let re_single = Regex::new(r"'([^']*)'").ok()?;
+    let fixed = re_single.replace_all(bytes, "\"$1\"").to_string();
+
+    let mut out = String::with_capacity(fixed.len());
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut i = 0;
+    let chars: Vec<char> = fixed.chars().collect();
+
+    while i < chars.len() {
+        let ch = chars[i];
+
+        if in_string {
+            if escape_next {
+                out.push(ch);
+                escape_next = false;
+            } else if ch == '\\' {
+                escape_next = true;
+                out.push(ch);
+            } else if ch == '"' {
+                in_string = false;
+                out.push(ch);
+            } else {
+                out.push(ch);
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+                out.push(ch);
+            } else if ch == '0' && i + 1 < chars.len() && chars[i + 1] == 'x' {
+                let mut j = i + 2;
+                while j < chars.len() && chars[j].is_ascii_hexdigit() {
+                    j += 1;
+                }
+                if j > i + 2 {
+                    out.push('"');
+                    out.extend(&chars[i..j]);
+                    out.push('"');
+                    i = j - 1;
+                } else {
+                    out.push(ch);
+                }
+            } else {
+                out.push(ch);
+            }
+        }
+        i += 1;
+    }
+
+    let mut out2 = String::with_capacity(out.len());
+    in_string = false;
+    escape_next = false;
+    for ch in out.chars() {
+        if in_string {
+            if escape_next {
+                out2.push(ch);
+                escape_next = false;
+            } else if ch == '\\' {
+                escape_next = true;
+                out2.push(ch);
+            } else if ch == '"' {
+                in_string = false;
+                out2.push(ch);
+            } else if ch == '\n' {
+                out2.push(' ');
+            } else {
+                out2.push(ch);
+            }
+        } else {
+            if ch == '"' {
+                in_string = true;
+            } else if ch == '\r' {
+                continue;
+            }
+            out2.push(ch);
+        }
+    }
+
+    serde_json::from_str(&out2).ok()
+}
+
 pub fn parse_mcmod_info(bytes: &str) -> Vec<ModInfo> {
-    let v: serde_json::Value = match serde_json::from_str(bytes) {
-        Ok(v) => v,
-        Err(_) => return vec![],
+    let v: serde_json::Value = match lenient_json_parse(bytes) {
+        Some(v) => v,
+        None => return vec![],
     };
 
     let arr = match v.as_array() {
@@ -253,6 +356,8 @@ pub fn parse_mcmod_info(bytes: &str) -> Vec<ModInfo> {
 
         let mod_id = obj.get("modid").and_then(|v| v.as_str()).map(|s| s.to_string());
         let name = obj.get("name").and_then(|v| v.as_str()).map(|s| s.to_string());
+        let version = obj.get("version").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
+        let description = obj.get("description").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let icon = obj.get("logoFile").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let url = obj.get("url").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
         let mc_version = obj.get("mcversion").and_then(|v| v.as_str()).filter(|s| !s.is_empty()).map(|s| s.to_string());
@@ -292,6 +397,8 @@ pub fn parse_mcmod_info(bytes: &str) -> Vec<ModInfo> {
             filename: String::new(),
             mod_id,
             name,
+            version,
+            description,
             icon,
             authors,
             license: None,
@@ -385,6 +492,8 @@ pub fn parse_jar(path: &Path) -> Vec<(ModInfo, Option<IconData>)> {
                 filename: fname,
                 mod_id: None,
                 name: if has_class_files { Some("Unknown mod".to_string()) } else { None },
+                version: None,
+                description: None,
                 icon: None,
                 authors: vec![],
                 license: None,

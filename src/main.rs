@@ -193,5 +193,7 @@ fn main() {
             eprintln!("Error writing output: {}", e);
             std::process::exit(1);
         });
+    } else {
+        println!("{}", output);
     }
 }
